@@ -1,0 +1,24 @@
+<package>
+	<description brief="Coordinator">
+		Coordinator
+	</description>
+	
+	<author>
+		Fabio
+	</author>
+	
+	<license>
+		BSD
+	</license>
+	
+	<review status="unreviewed" notes=""/>
+	
+	<url>
+		http://ros.org/wiki/Coordinator
+	</url>
+	
+	<depend package="geometry_msgs"/>
+	<depend package="roscpp"/>
+	<depend package="PTrackingBridge"/>
+	<depend package="std_msgs"/>
+</package>
