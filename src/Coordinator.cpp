@@ -1,6 +1,5 @@
 #include "Coordinator.h"
 #include <geometry_msgs/Point32.h>
-#include <std_msgs/String.h>
 #include <vector>
 
 using namespace std;
@@ -19,6 +18,7 @@ using PTrackingBridge::TargetEstimations;
 
 Coordinator::Coordinator() : nodeHandle("~"), coordinatorState(Idle)
 {
+	subscriberTargetChased = nodeHandle.subscribe("targetChased",1024,&Coordinator::updateTargetChased,this);
 	subscriberTargetEstimations = nodeHandle.subscribe("targetEstimations",1024,&Coordinator::updateTargetEstimations,this);
 	
 	publisherCommandPath = nodeHandle.advertise<String>("PointsListString",1);
@@ -46,6 +46,11 @@ void Coordinator::exec()
 		
 		coordinatorState = Patroling;
 	}
+}
+
+void Coordinator::updateTargetChased(const String::ConstPtr& message)
+{
+	
 }
 
 void Coordinator::updateTargetEstimations(const TargetEstimations::ConstPtr& message)

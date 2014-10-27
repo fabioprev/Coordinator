@@ -2,6 +2,7 @@
 
 #include "Utils/Timestamp.h"
 #include <ros/node_handle.h>
+#include <std_msgs/String.h>
 #include <PTrackingBridge/TargetEstimations.h>
 
 class Coordinator
@@ -16,7 +17,7 @@ class Coordinator
 		
 		ros::NodeHandle nodeHandle;
 		ros::Publisher publisherCommandPath;
-		ros::Subscriber subscriberTargetEstimations;
+		ros::Subscriber subscriberTargetChased, subscriberTargetEstimations;
 		PTracking::Timestamp lastTaskAssignment;
 		CoordinatorState coordinatorState;
 		
@@ -26,5 +27,6 @@ class Coordinator
 		virtual ~Coordinator();
 		
 		void exec();
+		void updateTargetChased(const std_msgs::String::ConstPtr& message);
 		void updateTargetEstimations(const PTrackingBridge::TargetEstimations::ConstPtr& message);
 };
