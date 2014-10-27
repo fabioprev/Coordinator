@@ -2,6 +2,8 @@
 bin
 build
 lib
+msg_gen
+src/Coordinator
 
 # Compiled Object files
 *.slo

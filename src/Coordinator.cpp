@@ -16,85 +16,88 @@ using PTrackingBridge::TargetEstimations;
 #define INFO(x) cerr << "\033[22;37;1m" << x << "\033[0m";
 #define DEBUG(x)  cerr << "\033[22;34;1m" << x << "\033[0m";
 
-Coordinator::Coordinator() : nodeHandle("~"), coordinatorState(Idle)
+namespace Coordination
 {
-	subscriberTargetChased = nodeHandle.subscribe("targetChased",1024,&Coordinator::updateTargetChased,this);
-	subscriberTargetEstimations = nodeHandle.subscribe("targetEstimations",1024,&Coordinator::updateTargetEstimations,this);
-	
-	publisherCommandPath = nodeHandle.advertise<String>("PointsListString",1);
-	
-	/// Waiting that the WaypointNavigation node has started.
-	usleep(5e6);
-}
-
-Coordinator::~Coordinator() {;}
-
-void Coordinator::exec()
-{
-	if (coordinatorState == Chasing)
+	Coordinator::Coordinator() : nodeHandle("~"), coordinatorState(Idle)
 	{
-		if ((Timestamp() - lastTaskAssignment).getMs() > TASK_ASSIGNMENT_TIME) coordinatorState = Idle;
+		subscriberTargetChased = nodeHandle.subscribe("targetChased",1024,&Coordinator::updateTargetChased,this);
+		subscriberTargetEstimations = nodeHandle.subscribe("targetEstimations",1024,&Coordinator::updateTargetEstimations,this);
+		
+		publisherCommandPath = nodeHandle.advertise<String>("PointsListString",1);
+		
+		/// Waiting that the WaypointNavigation node has started.
+		usleep(5e6);
 	}
 	
-	if (coordinatorState == Idle)
+	Coordinator::~Coordinator() {;}
+	
+	void Coordinator::exec()
 	{
-		String message;
+		if (coordinatorState == Chasing)
+		{
+			if ((Timestamp() - lastTaskAssignment).getMs() > TASK_ASSIGNMENT_TIME) coordinatorState = Idle;
+		}
 		
-		message.data = "Path_0";
-		
-		publisherCommandPath.publish(message);
-		
-		coordinatorState = Patroling;
-	}
-}
-
-void Coordinator::updateTargetChased(const String::ConstPtr& message)
-{
-	
-}
-
-void Coordinator::updateTargetEstimations(const TargetEstimations::ConstPtr& message)
-{
-	static Point32 currentChasingTarget;
-	static unsigned long pathCounter = 1;
-	
-	stringstream s;
-	float theta;
-	int counter;
-	
-	if ((Timestamp() - lastTaskAssignment).getMs() < TASK_ASSIGNMENT_TIME) return;
-	
-	lastTaskAssignment.setToNow();
-	
-	ERR("**************************************************" << endl);
-	
-	counter = 0;
-	
-	for (std::vector<int>::const_iterator it = message->identities.begin(); it != message->identities.end(); ++it, ++counter)
-	{
-		const Point32& position = message->positions.at(counter);
-		
-		INFO("[" << *it << "] -> (" << position.x << "," << position.y << ")" << endl);
+		if (coordinatorState == Idle)
+		{
+			String message;
+			
+			message.data = "Path_0";
+			
+			publisherCommandPath.publish(message);
+			
+			coordinatorState = Patroling;
+		}
 	}
 	
-	if (message->positions.size() == 0) return;
-	
-	const Point32& chasingTarget = message->positions.at(0);
-	
-	if ((fabs(currentChasingTarget.x - chasingTarget.x) > MINIMUM_DISTANCE) ||
-		(fabs(currentChasingTarget.y - chasingTarget.y) > MINIMUM_DISTANCE))
+	void Coordinator::updateTargetChased(const String::ConstPtr& message)
 	{
-		theta = atan2(chasingTarget.y,chasingTarget.x);
 		
-		s << "Path_-" << pathCounter++ << " 0 " << chasingTarget.x << " " << chasingTarget.y << " " << (theta * 180 / 3.1415);
+	}
+	
+	void Coordinator::updateTargetEstimations(const TargetEstimations::ConstPtr& message)
+	{
+		static Point32 currentChasingTarget;
+		static unsigned long pathCounter = 1;
 		
-		String dataToBePublished;
+		stringstream s;
+		float theta;
+		int counter;
 		
-		dataToBePublished.data = s.str();
+		if ((Timestamp() - lastTaskAssignment).getMs() < TASK_ASSIGNMENT_TIME) return;
 		
-		publisherCommandPath.publish(dataToBePublished);
+		lastTaskAssignment.setToNow();
 		
-		coordinatorState = Chasing;
-		currentChasingTarget = chasingTarget;
+		ERR("**************************************************" << endl);
+		
+		counter = 0;
+		
+		for (std::vector<int>::const_iterator it = message->identities.begin(); it != message->identities.end(); ++it, ++counter)
+		{
+			const Point32& position = message->positions.at(counter);
+			
+			INFO("[" << *it << "] -> (" << position.x << "," << position.y << ")" << endl);
+		}
+		
+		if (message->positions.size() == 0) return;
+		
+		const Point32& chasingTarget = message->positions.at(0);
+		
+		if ((fabs(currentChasingTarget.x - chasingTarget.x) > MINIMUM_DISTANCE) ||
+			(fabs(currentChasingTarget.y - chasingTarget.y) > MINIMUM_DISTANCE))
+		{
+			theta = atan2(chasingTarget.y,chasingTarget.x);
+			
+			s << "Path_-" << pathCounter++ << " 0 " << chasingTarget.x << " " << chasingTarget.y << " " << (theta * 180 / 3.1415);
+			
+			String dataToBePublished;
+			
+			dataToBePublished.data = s.str();
+			
+			publisherCommandPath.publish(dataToBePublished);
+			
+			coordinatorState = Chasing;
+			currentChasingTarget = chasingTarget;
+		}
 	}
 }
