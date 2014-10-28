@@ -1,5 +1,5 @@
 #include "Coordinator.h"
-#include <geometry_msgs/Point32.h>
+#include <limits>
 #include <vector>
 
 using namespace std;
@@ -16,88 +16,148 @@ using PTrackingBridge::TargetEstimations;
 #define INFO(x) cerr << "\033[22;37;1m" << x << "\033[0m";
 #define DEBUG(x)  cerr << "\033[22;34;1m" << x << "\033[0m";
 
-namespace Coordination
+Coordinator::Coordinator() : nodeHandle("~"), coordinatorState(Idle)
 {
-	Coordinator::Coordinator() : nodeHandle("~"), coordinatorState(Idle)
-	{
-		subscriberTargetChased = nodeHandle.subscribe("targetChased",1024,&Coordinator::updateTargetChased,this);
-		subscriberTargetEstimations = nodeHandle.subscribe("targetEstimations",1024,&Coordinator::updateTargetEstimations,this);
-		
-		publisherCommandPath = nodeHandle.advertise<String>("PointsListString",1);
-		
-		/// Waiting that the WaypointNavigation node has started.
-		usleep(5e6);
-	}
+	nodeHandle.getParam("agentId",agentId);
 	
-	Coordinator::~Coordinator() {;}
+	subscriberTargetChased = nodeHandle.subscribe("targetChased",1024,&Coordinator::updateTargetChased,this);
+	subscriberTargetEstimations = nodeHandle.subscribe("targetEstimations",1024,&Coordinator::updateTargetEstimations,this);
 	
-	void Coordinator::exec()
+	publisherCommandPath = nodeHandle.advertise<String>("PointsListString",1);
+	publisherTargetChased = nodeHandle.advertise<String>("targetChased",1);
+	
+	/// Waiting that the WaypointNavigation node has started.
+	usleep(5e6);
+}
+
+Coordinator::~Coordinator() {;}
+
+void Coordinator::exec()
+{
+	if (coordinatorState == Chasing)
 	{
-		if (coordinatorState == Chasing)
-		{
-			if ((Timestamp() - lastTaskAssignment).getMs() > TASK_ASSIGNMENT_TIME) coordinatorState = Idle;
-		}
-		
-		if (coordinatorState == Idle)
+		if ((Timestamp() - lastTaskAssignment).getMs() > TASK_ASSIGNMENT_TIME)
 		{
 			String message;
 			
-			message.data = "Path_0";
+			message.data = "";
 			
-			publisherCommandPath.publish(message);
+			publisherTargetChased.publish(message);
 			
-			coordinatorState = Patroling;
+			coordinatorState = Idle;
 		}
 	}
 	
-	void Coordinator::updateTargetChased(const String::ConstPtr& message)
+	if (coordinatorState == Idle)
 	{
+		chasingTarget.x = FLT_MAX;
+		chasingTarget.y = FLT_MAX;
 		
+		String message;
+		
+		message.data = "Path_0";
+		
+		publisherCommandPath.publish(message);
+		
+		coordinatorState = Patroling;
+	}
+}
+
+void Coordinator::updateTargetChased(const String::ConstPtr& message)
+{
+	mutex.lock();
+	
+	targetChased = message->data;
+	
+	mutex.unlock();
+}
+
+void Coordinator::updateTargetEstimations(const TargetEstimations::ConstPtr& message)
+{
+	static unsigned long pathCounter = 1;
+	
+	vector<int> targetChasedTeam;
+	stringstream s;
+	float theta;
+	int counter;
+	
+	if ((Timestamp() - lastTaskAssignment).getMs() < TASK_ASSIGNMENT_TIME) return;
+	
+	lastTaskAssignment.setToNow();
+	
+	if (message->positions.size() == 0) return;
+	
+	mutex.lock();
+	
+	s << targetChased;
+	
+	mutex.unlock();
+	
+	while (s.good())
+	{
+		if (s.eof()) break;
+		
+		int identity;
+		
+		s >> identity;
+		
+		targetChasedTeam.push_back(identity);
 	}
 	
-	void Coordinator::updateTargetEstimations(const TargetEstimations::ConstPtr& message)
+	counter = 0;
+	
+	for (vector<int>::const_iterator it = message->identities.begin(); it != message->identities.end(); ++it, ++counter)
 	{
-		static Point32 currentChasingTarget;
-		static unsigned long pathCounter = 1;
-		
-		stringstream s;
-		float theta;
-		int counter;
-		
-		if ((Timestamp() - lastTaskAssignment).getMs() < TASK_ASSIGNMENT_TIME) return;
-		
-		lastTaskAssignment.setToNow();
-		
-		ERR("**************************************************" << endl);
-		
-		counter = 0;
-		
-		for (std::vector<int>::const_iterator it = message->identities.begin(); it != message->identities.end(); ++it, ++counter)
+		if (find(targetChasedTeam.begin(),targetChasedTeam.end(),currentChasingTarget.first) != targetChasedTeam.end())
 		{
-			const Point32& position = message->positions.at(counter);
+			currentChasingTarget.first = *it;
+			currentChasingTarget.second = message->positions.at(counter);
 			
-			INFO("[" << *it << "] -> (" << position.x << "," << position.y << ")" << endl);
+			break;
 		}
 		
-		if (message->positions.size() == 0) return;
-		
-		const Point32& chasingTarget = message->positions.at(0);
-		
-		if ((fabs(currentChasingTarget.x - chasingTarget.x) > MINIMUM_DISTANCE) ||
-			(fabs(currentChasingTarget.y - chasingTarget.y) > MINIMUM_DISTANCE))
+		if (find(targetChasedTeam.begin(),targetChasedTeam.end(),*it) == targetChasedTeam.end())
 		{
-			theta = atan2(chasingTarget.y,chasingTarget.x);
-			
-			s << "Path_-" << pathCounter++ << " 0 " << chasingTarget.x << " " << chasingTarget.y << " " << (theta * 180 / 3.1415);
-			
-			String dataToBePublished;
-			
-			dataToBePublished.data = s.str();
-			
-			publisherCommandPath.publish(dataToBePublished);
-			
-			coordinatorState = Chasing;
-			currentChasingTarget = chasingTarget;
+			currentChasingTarget.first = *it;
+			currentChasingTarget.second = message->positions.at(counter);
 		}
+	}
+	
+	INFO("Agent (" << agentId << ") chasing target [" << currentChasingTarget.first << "]" << endl);
+	
+	if ((fabs(currentChasingTarget.second.x - chasingTarget.x) > MINIMUM_DISTANCE) ||
+		(fabs(currentChasingTarget.second.y - chasingTarget.y) > MINIMUM_DISTANCE))
+	{
+		chasingTarget.x = currentChasingTarget.second.x;
+		chasingTarget.y = currentChasingTarget.second.y;
+		
+		theta = atan2(chasingTarget.y,chasingTarget.x);
+		
+		s.str("");
+		s.clear();
+		
+		s << "Path_-" << pathCounter++ << " 0 " << chasingTarget.x << " " << chasingTarget.y << " " << (theta * 180 / 3.1415);
+		
+		String dataToBePublished;
+		
+		dataToBePublished.data = s.str();
+		
+		publisherCommandPath.publish(dataToBePublished);
+		
+		coordinatorState = Chasing;
+		
+		currentChasingTarget.first = message->identities.at(0);
+		currentChasingTarget.second = chasingTarget;
+		
+		String targetChased;
+		
+		s.str("");
+		s.clear();
+		
+		s << currentChasingTarget.first;
+		
+		targetChased.data = s.str();
+		
+		publisherTargetChased.publish(targetChased);
 	}
 }
