@@ -8,6 +8,8 @@ find_package(catkin REQUIRED COMPONENTS roscpp)
 
 include_directories(${catkin_INCLUDE_DIRS})
 
+catkin_package()
+
 file(GLOB_RECURSE Coordinator_src "src/*.cpp")
 
 add_executable(Coordinator ${Coordinator_src})
