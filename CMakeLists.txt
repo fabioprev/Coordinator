@@ -8,7 +8,7 @@ find_package(catkin REQUIRED COMPONENTS roscpp)
 
 include_directories(${catkin_INCLUDE_DIRS})
 
-catkin_package()
+catkin_package(CATKIN_DEPENDS PTrackingBridge)
 
 file(GLOB_RECURSE Coordinator_src "src/*.cpp")
 
