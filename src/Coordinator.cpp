@@ -1,15 +1,20 @@
 #include "Coordinator.h"
+#include <tf/LinearMath/Matrix3x3.h>
+#include <tf/LinearMath/Quaternion.h>
 #include <limits>
 #include <vector>
 
 using namespace std;
+using geometry_msgs::Quaternion;
 using geometry_msgs::Point32;
+using nav_msgs::Odometry;
 using std_msgs::String;
 using PTracking::Timestamp;
 using PTrackingBridge::TargetEstimations;
 
-#define TASK_ASSIGNMENT_TIME 1000	/// In milliseconds.
-#define MINIMUM_DISTANCE 1			/// In meters.
+static const float MINIMUM_ANGLE		= 30.0;		/// In degrees.
+static const float MINIMUM_DISTANCE		= 1;		/// In meters.
+static const int TASK_ASSIGNMENT_TIME	= 1000;		/// In milliseconds.
 
 #define ERR(x)  cerr << "\033[22;31;1m" << x << "\033[0m";
 #define WARN(x) cerr << "\033[22;33;1m" << x << "\033[0m";
@@ -22,6 +27,7 @@ Coordinator::Coordinator() : nodeHandle("~"), coordinatorState(Idle)
 	
 	subscriberTargetChased = nodeHandle.subscribe("targetChased",1024,&Coordinator::updateTargetChased,this);
 	subscriberTargetEstimations = nodeHandle.subscribe("targetEstimations",1024,&Coordinator::updateTargetEstimations,this);
+	subscriberRobotPose = nodeHandle.subscribe("base_pose_ground_truth",1024,&Coordinator::updateRobotPose,this);
 	
 	publisherCommandPath = nodeHandle.advertise<String>("PointsListString",1);
 	publisherTargetChased = nodeHandle.advertise<String>("targetChased",1);
@@ -63,6 +69,23 @@ void Coordinator::exec()
 	}
 }
 
+void Coordinator::updateRobotPose(const Odometry::ConstPtr& message)
+{
+	double roll, pitch, yaw;
+	
+	const Quaternion& q = message->pose.pose.orientation;
+	
+	tf::Matrix3x3(tf::Quaternion(q.x,q.y,q.z,q.w)).getRPY(roll,pitch,yaw);
+	
+	mutex.lock();
+	
+	robotPoseX = message->pose.pose.position.x;
+	robotPoseY = message->pose.pose.position.y;
+	robotPoseTheta = (yaw * 180) / M_PI;
+	
+	mutex.unlock();
+}
+
 void Coordinator::updateTargetChased(const String::ConstPtr& message)
 {
 	mutex.lock();
@@ -78,7 +101,6 @@ void Coordinator::updateTargetEstimations(const TargetEstimations::ConstPtr& mes
 	
 	vector<int> targetChasedTeam;
 	stringstream s;
-	float theta;
 	int counter;
 	
 	if ((Timestamp() - lastTaskAssignment).getMs() < TASK_ASSIGNMENT_TIME) return;
@@ -125,18 +147,29 @@ void Coordinator::updateTargetEstimations(const TargetEstimations::ConstPtr& mes
 	
 	INFO("Agent (" << agentId << ") chasing target [" << currentChasingTarget.first << "]" << endl);
 	
+	float theta;
+	
+	mutex.lock();
+	
+	theta = (atan2(currentChasingTarget.second.y - robotPoseY,currentChasingTarget.second.x - robotPoseX) * 180.0) / M_PI;
+	
+	mutex.unlock();
+	
 	if ((fabs(currentChasingTarget.second.x - chasingTarget.x) > MINIMUM_DISTANCE) ||
-		(fabs(currentChasingTarget.second.y - chasingTarget.y) > MINIMUM_DISTANCE))
+		(fabs(currentChasingTarget.second.y - chasingTarget.y) > MINIMUM_DISTANCE) ||
+		(fabs(theta - robotPoseTheta) > MINIMUM_ANGLE))
 	{
 		chasingTarget.x = currentChasingTarget.second.x;
 		chasingTarget.y = currentChasingTarget.second.y;
 		
-		theta = atan2(chasingTarget.y,chasingTarget.x);
-		
 		s.str("");
 		s.clear();
 		
-		s << "Path_-" << pathCounter++ << " 0 " << chasingTarget.x << " " << chasingTarget.y << " " << (theta * 180 / 3.1415);
+		if ((fabs(theta - robotPoseTheta) > MINIMUM_ANGLE) && (fabs(robotPoseX - chasingTarget.x) <= MINIMUM_DISTANCE) && (fabs(robotPoseY - chasingTarget.y) <= MINIMUM_DISTANCE))
+		{
+			s << "Path_-" << pathCounter++ << " 0 " << robotPoseX << " " << robotPoseY << " " << theta;
+		}
+		else s << "Path_-" << pathCounter++ << " 0 " << chasingTarget.x << " " << chasingTarget.y << " " << theta;
 		
 		String dataToBePublished;
 		
