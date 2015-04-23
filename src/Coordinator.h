@@ -30,6 +30,14 @@ class Coordinator
 		double robotPoseX, robotPoseY, robotPoseTheta;
 		int agentId;
 		
+		inline std::string getCoordinatorState() const
+		{
+			if (coordinatorState == Chasing) return "Chasing";
+			else if (coordinatorState == Idle) return "Idle";
+			else if (coordinatorState == Patroling) return "Patroling";
+			else throw new std::runtime_error("Unknown coordinator state!");
+		}
+		
 	public:
 		Coordinator();
 		

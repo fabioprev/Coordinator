@@ -40,9 +40,11 @@ Coordinator::~Coordinator() {;}
 
 void Coordinator::exec()
 {
+	//ERR("State: " << getCoordinatorState() << endl);
+	
 	if (coordinatorState == Chasing)
 	{
-		if ((Timestamp() - lastTaskAssignment).getMs() > TASK_ASSIGNMENT_TIME)
+		if ((Timestamp() - lastTaskAssignment).getMs() > (1.5 * TASK_ASSIGNMENT_TIME))
 		{
 			String message;
 			
@@ -145,7 +147,7 @@ void Coordinator::updateTargetEstimations(const TargetEstimations::ConstPtr& mes
 		}
 	}
 	
-	INFO("Agent (" << agentId << ") chasing target [" << currentChasingTarget.first << "]" << endl);
+	//INFO("Agent (" << agentId << ") chasing target [" << currentChasingTarget.first << "]" << endl);
 	
 	float theta;
 	
