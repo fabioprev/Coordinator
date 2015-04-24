@@ -7,14 +7,15 @@
 using namespace std;
 using geometry_msgs::Quaternion;
 using geometry_msgs::Point32;
-using nav_msgs::Odometry;
+using geometry_msgs::PoseWithCovarianceStamped;
 using std_msgs::String;
 using PTracking::Timestamp;
 using PTrackingBridge::TargetEstimations;
 
-static const float MINIMUM_ANGLE		= 30.0;		/// In degrees.
-static const float MINIMUM_DISTANCE		= 1;		/// In meters.
-static const int TASK_ASSIGNMENT_TIME	= 1000;		/// In milliseconds.
+static const float MINIMUM_ANGLE			= 30.0;		/// In degrees.
+static const float MINIMUM_DISTANCE			= 4.0;		/// In meters.
+static const float MINIMUM_DISTANCE_ROTATE	= 1.0;		/// In meters.
+static const int TASK_ASSIGNMENT_TIME		= 1000;		/// In milliseconds.
 
 #define ERR(x)  cerr << "\033[22;31;1m" << x << "\033[0m";
 #define WARN(x) cerr << "\033[22;33;1m" << x << "\033[0m";
@@ -27,7 +28,7 @@ Coordinator::Coordinator() : nodeHandle("~"), coordinatorState(Idle)
 	
 	subscriberTargetChased = nodeHandle.subscribe("targetChased",1024,&Coordinator::updateTargetChased,this);
 	subscriberTargetEstimations = nodeHandle.subscribe("targetEstimations",1024,&Coordinator::updateTargetEstimations,this);
-	subscriberRobotPose = nodeHandle.subscribe("base_pose_ground_truth",1024,&Coordinator::updateRobotPose,this);
+	subscriberRobotPose = nodeHandle.subscribe("base_pose",1024,&Coordinator::updateRobotPose,this);
 	
 	publisherCommandPath = nodeHandle.advertise<String>("PointsListString",1);
 	publisherTargetChased = nodeHandle.advertise<String>("targetChased",1);
@@ -71,7 +72,7 @@ void Coordinator::exec()
 	}
 }
 
-void Coordinator::updateRobotPose(const Odometry::ConstPtr& message)
+void Coordinator::updateRobotPose(const PoseWithCovarianceStamped::ConstPtr& message)
 {
 	double roll, pitch, yaw;
 	
@@ -83,7 +84,7 @@ void Coordinator::updateRobotPose(const Odometry::ConstPtr& message)
 	
 	robotPoseX = message->pose.pose.position.x;
 	robotPoseY = message->pose.pose.position.y;
-	robotPoseTheta = (yaw * 180) / M_PI;
+	robotPoseTheta = (yaw * 180.0) / M_PI;
 	
 	mutex.unlock();
 }
@@ -159,19 +160,23 @@ void Coordinator::updateTargetEstimations(const TargetEstimations::ConstPtr& mes
 	
 	if ((fabs(currentChasingTarget.second.x - chasingTarget.x) > MINIMUM_DISTANCE) ||
 		(fabs(currentChasingTarget.second.y - chasingTarget.y) > MINIMUM_DISTANCE) ||
-		(fabs(theta - robotPoseTheta) > MINIMUM_ANGLE))
+		(fabs( theta - robotPoseTheta) > MINIMUM_ANGLE))
 	{
-		chasingTarget.x = currentChasingTarget.second.x;
-		chasingTarget.y = currentChasingTarget.second.y;
-		
 		s.str("");
 		s.clear();
 		
-		if ((fabs(theta - robotPoseTheta) > MINIMUM_ANGLE) && (fabs(robotPoseX - chasingTarget.x) <= MINIMUM_DISTANCE) && (fabs(robotPoseY - chasingTarget.y) <= MINIMUM_DISTANCE))
+		if ((fabs(currentChasingTarget.second.x - chasingTarget.x) > MINIMUM_DISTANCE) || (fabs(currentChasingTarget.second.y - chasingTarget.y) > MINIMUM_DISTANCE))
+		{
+			s << "Path_-" << pathCounter++ << " 0 " << currentChasingTarget.second.x << " " << currentChasingTarget.second.y << " " << theta;
+		}
+		else if ((fabs(theta - robotPoseTheta) > MINIMUM_ANGLE) && (fabs(robotPoseX - chasingTarget.x) <= MINIMUM_DISTANCE_ROTATE) && (fabs(robotPoseY - chasingTarget.y) <= MINIMUM_DISTANCE_ROTATE))
 		{
 			s << "Path_-" << pathCounter++ << " 0 " << robotPoseX << " " << robotPoseY << " " << theta;
 		}
-		else s << "Path_-" << pathCounter++ << " 0 " << chasingTarget.x << " " << chasingTarget.y << " " << theta;
+		else return;
+		
+		chasingTarget.x = currentChasingTarget.second.x;
+		chasingTarget.y = currentChasingTarget.second.y;
 		
 		String dataToBePublished;
 		
